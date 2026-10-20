@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "GAINAKO — Suivi agricole",
+  "short_name": "GAINAKO",
+  "description": "Cartographie, suivi de parcelle et aide à la décision agricole.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6f3",
+  "theme_color": "#244c35",
+  "icons": [
+    {
+      "src": "./logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

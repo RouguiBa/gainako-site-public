@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#244c35">
+    <meta name="description" content="GAINAKO — cartographie, suivi et aide à la décision pour les champs.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>GAINAKO — suivi agricole</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://server.arcgisonline.com">
+    <link rel="preconnect" href="https://tile.openstreetmap.org">
+    <link rel="preconnect" href="https://www.arcgis.com">
+    <link rel="preconnect" href="https://wayback.maptiles.arcgis.com">
+    <link rel="preconnect" href="https://metadata.maptiles.arcgis.com">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script defer src="./supabase-config.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <section class="auth-gate" id="auth-gate" aria-labelledby="auth-title">
+      <div class="auth-card">
+        <img class="auth-logo" src="./logo.svg" alt="">
+        <p class="eyebrow">SUIVI AGRICOLE PRIVÉ</p>
+        <h1 id="auth-title">Connexion à GAINAKO</h1>
+        <p class="auth-description">Connectez-vous avec un compte autorisé pour accéder aux données de la parcelle.</p>
+        <form id="login-form">
+          <label for="login-email">Adresse e-mail</label>
+          <input id="login-email" name="email" type="email" autocomplete="username" required>
+          <label for="login-password">Mot de passe</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="button button-green auth-submit" id="login-button" type="submit">Se connecter</button>
+        </form>
+        <p class="auth-message" id="auth-message" role="status" aria-live="polite">Chargement de la connexion sécurisée…</p>
+        <button class="button button-light auth-signout" id="auth-signout" type="button" hidden>Déconnexion</button>
+      </div>
+    </section>
+    <div id="app-shell" hidden>
+    <header class="app-header">
+      <a class="brand" href="#" aria-label="GAINAKO, accueil">
+        <span class="brand-logo-frame"><img class="brand-logo" src="./logo.svg" alt=""></span>
+        <span class="brand-name">GAINAKO</span>
+        <span class="brand-divider"></span>
+        <span class="brand-subtitle">Suivi agricole</span>
+      </a>
+      <div class="header-location">
+        <span class="location-pulse"></span>
+        <span id="field-name-header">Parcelle</span>
+      </div>
+      <div class="header-actions">
+        <span class="storage-status"><span class="status-dot"></span> Synchronisé avec Supabase</span>
+        <button class="icon-button header-tool" id="install-button" type="button" hidden aria-label="Installer GAINAKO" title="Installer GAINAKO">⇩</button>
+        <button class="icon-button header-tool" id="locate-button" type="button" aria-label="Recentrer sur le champ" title="Recentrer sur le champ">⌖</button>
+        <button class="icon-button header-tool" id="fullscreen-button" type="button" aria-label="Plein écran" title="Plein écran">⛶</button>
+        <button class="button button-light header-export" id="export-button" type="button">Exporter</button>
+        <label class="button button-light header-import" for="import-file">Importer</label>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+        <button class="button button-light signout-button" id="signout-button" type="button">Déconnexion</button>
+      </div>
+    </header>
+
+    <main class="app-layout">
+      <aside class="tool-sidebar" id="tool-sidebar" aria-label="Outils de suivi agricole">
+        <div class="sidebar-scroll">
+          <section class="field-overview">
+            <p class="eyebrow">PARCELLE SUIVIE</p>
+            <h1 id="field-name">Parcelle suivie</h1>
+            <p class="field-location" id="field-location"></p>
+            <div class="field-stats">
+              <div><span>Surface suivie</span><strong id="area-value">—</strong></div>
+              <div><span>Observations</span><strong id="record-count">0</strong></div>
+            </div>
+          </section>
+
+          <section class="tool-section imagery-section" aria-label="Imagerie satellite">
+            <div class="section-title-row">
+              <span class="section-icon" aria-hidden="true">◉</span>
+              <div><h2>Imagerie satellite</h2><p>Esri World Imagery Wayback</p></div>
+            </div>
+            <label class="timeline-label" for="imagery-timeline">Version de l’image</label>
+            <input id="imagery-timeline" type="range" min="0" max="0" value="0" step="1" disabled aria-describedby="imagery-help imagery-source">
+            <div class="timeline-ends">
+              <span id="imagery-oldest">—</span>
+              <span id="imagery-newest">—</span>
+            </div>
+            <p class="timeline-release" id="imagery-release">Chargement des dates…</p>
+            <p class="imagery-source" id="imagery-source" aria-live="polite">Recherche de la date de l’image sur le champ…</p>
+            <p class="imagery-help" id="imagery-help">La date du fond peut différer de la date de prise de vue.</p>
+            <div class="map-layer-control" id="map-layer-control" aria-label="Fond cartographique">
+              <button class="layer-choice active" data-layer="satellite" type="button" aria-pressed="true">Satellite</button>
+              <button class="layer-choice" data-layer="street" type="button" aria-pressed="false">Carte</button>
+            </div>
+          </section>
+
+          <section class="tool-section decision-section">
+            <div class="section-title-row">
+              <span class="section-icon" aria-hidden="true">⌁</span>
+              <div><h2>Aide à la décision</h2><p>Indicateurs et terrain</p></div>
+            </div>
+            <div class="decision-card">
+              <div class="decision-card-heading"><span>Végétation · Sentinel‑2</span><span class="coming-badge">À connecter</span></div>
+              <p>Un indice NDVI peut aider à repérer les changements de végétation. Il faut des images sans nuages et une source d’analyse satellite configurée.</p>
+            </div>
+            <p class="imagery-source" id="field-imagery-date">Date source de l’image : en attente des métadonnées…</p>
+          </section>
+
+          <section class="tool-section field-tools">
+            <div class="section-title-row">
+              <span class="section-icon" aria-hidden="true">⌖</span>
+              <div><h2>Outils de parcelle</h2><p>Contour et observations</p></div>
+            </div>
+            <div class="boundary-actions">
+              <button class="button button-outline" id="boundary-button" type="button">Modifier le contour</button>
+              <button class="button button-green" id="finish-boundary" type="button" disabled>Terminer</button>
+            </div>
+            <p class="map-hint" id="map-hint">Clique sur la carte pour placer une observation.</p>
+            <div class="map-legend">
+              <span><i class="legend-dot legend-home"></i> Limite du champ</span>
+              <span><i class="legend-dot legend-note"></i> Observation</span>
+            </div>
+          </section>
+
+          <details class="tool-section observation-details" id="observation-details">
+            <summary>
+              <span class="section-icon" aria-hidden="true">＋</span>
+              <span class="summary-text"><strong>Ajouter une observation</strong><small>Culture, eau, bâtiment, ravageur…</small></span>
+              <span class="summary-chevron">⌄</span>
+            </summary>
+            <form id="record-form">
+              <label for="record-title">Observation</label>
+              <input id="record-title" name="title" maxlength="80" placeholder="Ex. Début du semis" required>
+              <label for="record-category">Thème</label>
+              <select id="record-category" name="category">
+                <option value="culture">Culture / semis</option>
+                <option value="batiment">Bâtiment</option>
+                <option value="eau">Eau / irrigation</option>
+                <option value="travaux">Travaux</option>
+                <option value="observation">État du champ</option>
+              </select>
+              <label for="record-date">Date</label>
+              <input id="record-date" name="date" type="date" required>
+              <label for="record-description">Détails <span class="optional">(facultatif)</span></label>
+              <textarea id="record-description" name="description" rows="3" maxlength="500" placeholder="Ce qui a été observé ou décidé…"></textarea>
+              <div class="coordinate-row">
+                <label for="record-latitude">Latitude</label>
+                <label for="record-longitude">Longitude</label>
+                <input id="record-latitude" name="latitude" type="number" min="-90" max="90" step="any" required>
+                <input id="record-longitude" name="longitude" type="number" min="-180" max="180" step="any" required>
+              </div>
+              <p class="form-hint">L’emplacement est choisi sur la carte ou avec les coordonnées.</p>
+              <button class="button button-green save-button" type="submit">Enregistrer l’observation</button>
+              <p class="form-status" id="form-status" aria-live="polite"></p>
+            </form>
+          </details>
+
+          <section class="tool-section records-section">
+            <div class="records-heading">
+              <div><h2>Observations récentes</h2><p>Suivi du champ</p></div>
+              <span class="record-total" id="record-total">0</span>
+            </div>
+            <div id="records-list" class="records-list">
+              <p class="empty-state">Aucune observation. Clique sur la carte puis ajoute une note de suivi.</p>
+            </div>
+          </section>
+        </div>
+        <div class="sidebar-footer">GAINAKO <span>·</span> Données synchronisées en ligne</div>
+      </aside>
+
+      <section class="map-workspace" aria-label="Carte interactive du champ">
+        <div id="map" role="application" aria-label="Carte interactive du champ agricole">
+          <div class="map-status"><span class="location-pulse"></span><span id="map-field-name">Champ suivi</span></div>
+          <a class="map-credit-link" id="map-credit-link" href="https://livingatlas.arcgis.com/wayback/" target="_blank" rel="noopener noreferrer">Source cartographique</a>
+        </div>
+      </section>
+    </main>
+    </div>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  </body>
+</html>
