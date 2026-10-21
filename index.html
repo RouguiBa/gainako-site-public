@@ -44,9 +44,6 @@
     <header class="app-header">
       <a class="brand" href="#" aria-label="GAINAKO, accueil">
         <span class="brand-logo-frame"><img class="brand-logo" src="./logo.svg" alt=""></span>
-        <span class="brand-name">GAINAKO</span>
-        <span class="brand-divider"></span>
-        <span class="brand-subtitle">Suivi agricole</span>
       </a>
       <div class="header-location">
         <span class="location-pulse"></span>
@@ -77,36 +74,79 @@
             </div>
           </section>
 
-          <section class="tool-section imagery-section" aria-label="Imagerie satellite">
+          <section class="tool-section imagery-section" aria-label="Couches cartographiques">
             <div class="section-title-row">
               <span class="section-icon" aria-hidden="true">◉</span>
-              <div><h2>Imagerie satellite</h2><p>Esri World Imagery Wayback</p></div>
+              <div><h2>Couches cartographiques</h2><p>Choisir les fonds et les informations affichées</p></div>
             </div>
-            <label class="timeline-label" for="imagery-timeline">Version de l’image</label>
+            <label class="timeline-label" for="imagery-timeline">Date de la version du fond</label>
             <input id="imagery-timeline" type="range" min="0" max="0" value="0" step="1" disabled aria-describedby="imagery-help imagery-source">
             <div class="timeline-ends">
               <span id="imagery-oldest">—</span>
               <span id="imagery-newest">—</span>
             </div>
-            <p class="timeline-release" id="imagery-release">Chargement des dates…</p>
-            <p class="imagery-source" id="imagery-source" aria-live="polite">Recherche de la date de l’image sur le champ…</p>
-            <p class="imagery-help" id="imagery-help">La date du fond peut différer de la date de prise de vue.</p>
-            <div class="map-layer-control" id="map-layer-control" aria-label="Fond cartographique">
-              <button class="layer-choice active" data-layer="satellite" type="button" aria-pressed="true">Satellite</button>
-              <button class="layer-choice" data-layer="street" type="button" aria-pressed="false">Carte</button>
-            </div>
+            <p class="timeline-release" id="imagery-release">Chargement des dates Esri…</p>
+            <p class="imagery-source" id="imagery-source" aria-live="polite">Chargement du fond Esri World Imagery…</p>
+            <p class="imagery-help" id="imagery-help">La date Wayback est celle de la version du fond. La prise de vue réelle peut être différente selon le lieu. Le changement de date conserve le zoom et le cadrage de la carte.</p>
+            <fieldset class="map-layer-list">
+              <legend>Fonds cartographiques</legend>
+              <label class="map-layer-option">
+                <input type="radio" name="base-layer" value="esri" checked>
+                <span><strong>Satellite Esri</strong><small>Images actuelles ou archives Wayback</small></span>
+              </label>
+              <label class="map-layer-option">
+                <input id="base-layer-copernicus" type="radio" name="base-layer" value="copernicus" disabled>
+                <span><strong>Satellite Copernicus · Sentinel‑2</strong><small id="copernicus-layer-help">Lance une analyse pour préparer l’image de la période choisie.</small></span>
+              </label>
+              <label class="map-layer-option">
+                <input type="radio" name="base-layer" value="street">
+                <span><strong>Carte de rue</strong><small>OpenStreetMap</small></span>
+              </label>
+              <div class="map-overlay-heading">Couches superposées</div>
+              <label class="map-layer-option">
+                <input id="layer-ndvi" type="checkbox" disabled>
+                <span><strong>Analyse NDVI</strong><small>Couverture végétale estimée</small></span>
+              </label>
+              <label class="map-layer-option">
+                <input id="layer-boundary" type="checkbox" checked>
+                <span><strong>Contour de la parcelle</strong><small>Limite enregistrée</small></span>
+              </label>
+            </fieldset>
           </section>
 
-          <section class="tool-section decision-section">
+          <section class="tool-section decision-section" aria-labelledby="ndvi-title">
             <div class="section-title-row">
               <span class="section-icon" aria-hidden="true">⌁</span>
-              <div><h2>Aide à la décision</h2><p>Indicateurs et terrain</p></div>
+              <div><h2 id="ndvi-title">État de la végétation</h2><p>Analyse Sentinel‑2 · date ou période</p></div>
             </div>
-            <div class="decision-card">
-              <div class="decision-card-heading"><span>Végétation · Sentinel‑2</span><span class="coming-badge">À connecter</span></div>
-              <p>Un indice NDVI peut aider à repérer les changements de végétation. Il faut des images sans nuages et une source d’analyse satellite configurée.</p>
+            <div class="ndvi-date-range">
+              <label for="ndvi-date-from">Du<input id="ndvi-date-from" type="date" required></label>
+              <label for="ndvi-date-to">Au<input id="ndvi-date-to" type="date" required></label>
             </div>
-            <p class="imagery-source" id="field-imagery-date">Date source de l’image : en attente des métadonnées…</p>
+            <p class="imagery-help">Pour une seule date, choisis le même jour dans les deux champs. Période maximale : un an.</p>
+            <button class="button button-outline ndvi-button" id="ndvi-button" type="button">Analyser la parcelle</button>
+            <p class="imagery-source" id="ndvi-status" aria-live="polite">Choisis une date ou une période, puis lance l’analyse.</p>
+            <div class="ndvi-results" id="ndvi-results" hidden>
+              <div class="ndvi-score"><span>NDVI moyen</span><strong id="ndvi-mean">—</strong></div>
+              <div class="ndvi-interpretation" id="ndvi-interpretation" role="status">
+                <strong id="ndvi-interpretation-title"></strong>
+                <p id="ndvi-interpretation-description"></p>
+              </div>
+              <p class="imagery-source" id="ndvi-period"></p>
+              <div class="ndvi-legend" aria-label="Légende de la carte NDVI">
+                <span><i class="ndvi-swatch ndvi-low"></i>Peu de végétation visible</span>
+                <span><i class="ndvi-swatch ndvi-medium"></i>Couvert intermédiaire</span>
+                <span><i class="ndvi-swatch ndvi-high"></i>Végétation active</span>
+                <span><i class="ndvi-swatch ndvi-very-high"></i>Végétation dense</span>
+              </div>
+              <div class="ndvi-breakdown">
+                <div><span>Végétation dense <strong id="ndvi-dense-value">—</strong></span><div class="ndvi-track"><i id="ndvi-dense-bar"></i></div></div>
+                <div><span>Végétation clairsemée <strong id="ndvi-sparse-value">—</strong></span><div class="ndvi-track"><i id="ndvi-sparse-bar"></i></div></div>
+                <div><span>Faible couvert / sol nu possible <strong id="ndvi-bare-value">—</strong></span><div class="ndvi-track"><i id="ndvi-bare-bar"></i></div></div>
+              </div>
+              <p class="imagery-help" id="ndvi-pixels"></p>
+            </div>
+            <p class="imagery-help">La couche montre un signal de végétation par pixel sur une image Sentinel‑2 de 10 m, pas une photo détaillée du champ. Les zones transparentes indiquent des nuages, ombres ou données absentes. Le NDVI n’évalue ni la fertilité ni la qualité du sol : saison, récolte, eau, stress et pixels mixtes influencent le résultat. Vérifie les observations sur le terrain.</p>
           </section>
 
           <section class="tool-section field-tools">
@@ -174,7 +214,7 @@
       <section class="map-workspace" aria-label="Carte interactive du champ">
         <div id="map" role="application" aria-label="Carte interactive du champ agricole">
           <div class="map-status"><span class="location-pulse"></span><span id="map-field-name">Champ suivi</span></div>
-          <a class="map-credit-link" id="map-credit-link" href="https://livingatlas.arcgis.com/wayback/" target="_blank" rel="noopener noreferrer">Source cartographique</a>
+          <a class="map-credit-link" id="map-credit-link" href="https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9" target="_blank" rel="noopener noreferrer">Source Esri World Imagery</a>
         </div>
       </section>
     </main>

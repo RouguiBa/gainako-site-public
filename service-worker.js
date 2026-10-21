@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "gainako-shell-v4";
+const CACHE_NAME = "gainako-shell-v8";
 const APP_SHELL = [
   "./",
   "./index.html",

@@ -3,6 +3,7 @@
 (() => {
   const WAYBACK_SEARCH_URL = "https://www.arcgis.com/sharing/rest/search";
   const WEB_MERCATOR_RADIUS = 6378137;
+  const CURRENT_SATELLITE_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
   const CATEGORY_LABELS = {
     culture: "Culture",
     batiment: "Bâtiment",
@@ -35,6 +36,8 @@
   let field = null;
   let supabaseClient = null;
   let map = null;
+  let ndviOverlay = null;
+  let copernicusOverlay = null;
   let authenticatedUserId = null;
   let sessionOperation = 0;
   let drawingBoundary = false;
@@ -116,66 +119,92 @@
       return;
     }
 
-    const map = L.map("map", { scrollWheelZoom: false });
-    const satelliteLayer = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      {
-        maxZoom: 19,
-        attribution: 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Vantor, Earthstar Geographics, and the GIS User Community',
-      },
-    );
+    const map = L.map("map", { scrollWheelZoom: true, maxZoom: 24 });
+    const satelliteLayer = L.tileLayer(CURRENT_SATELLITE_TILE_URL, {
+      maxZoom: 24,
+      maxNativeZoom: 19,
+      attribution: 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Vantor, Earthstar Geographics, and the GIS User Community',
+    });
     const streetLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
+      maxZoom: 24,
+      maxNativeZoom: 24,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     });
-    satelliteLayer.addTo(map);
     let satelliteErrorShown = false;
     satelliteLayer.on("tileerror", () => {
       if (satelliteErrorShown) return;
       satelliteErrorShown = true;
-      showNotice("Les images satellite ne répondent pas. Vous pouvez choisir « Carte de rue ».");
+      showNotice("Certaines images satellite Esri sont indisponibles à cet endroit ou à ce niveau de zoom.");
     });
-    setupImageryTimeline(satelliteLayer, privateField);
-    for (const button of document.querySelectorAll(".layer-choice")) {
-      button.addEventListener("click", () => {
-        const isSatellite = button.dataset.layer === "satellite";
-        if (isSatellite) {
-          if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
-          satelliteLayer.addTo(map);
-        } else {
-          if (map.hasLayer(satelliteLayer)) map.removeLayer(satelliteLayer);
-          streetLayer.addTo(map);
-        }
-        for (const choice of document.querySelectorAll(".layer-choice")) {
-          const selected = choice === button;
-          choice.classList.toggle("active", selected);
-          choice.setAttribute("aria-pressed", String(selected));
-        }
-        const creditLink = document.querySelector("#map-credit-link");
-        creditLink.href = isSatellite
-          ? "https://livingatlas.arcgis.com/wayback/"
-          : "https://www.openstreetmap.org/fixthemap";
-        creditLink.textContent = isSatellite ? "Source cartographique" : "Signaler une erreur";
-      });
+    function selectBaseLayer(layerName) {
+      if (layerName === "copernicus" && !copernicusOverlay) {
+        showNotice("Lance d’abord une analyse pour préparer l’image Copernicus de cette période.");
+        document.querySelector('input[name="base-layer"][value="esri"]').checked = true;
+        return;
+      }
+      for (const layer of [satelliteLayer, streetLayer, copernicusOverlay]) {
+        if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+      }
+      if (layerName === "street") {
+        streetLayer.addTo(map);
+      } else if (layerName === "copernicus") {
+        copernicusOverlay.addTo(map);
+      } else {
+        satelliteLayer.addTo(map);
+      }
+      if (ndviOverlay && document.querySelector("#layer-ndvi").checked) {
+        if (map.hasLayer(ndviOverlay)) map.removeLayer(ndviOverlay);
+        ndviOverlay.addTo(map);
+      }
+      if (boundaryLayer && document.querySelector("#layer-boundary").checked) {
+        if (map.hasLayer(boundaryLayer)) map.removeLayer(boundaryLayer);
+        boundaryLayer.addTo(map);
+      }
+      const creditLink = document.querySelector("#map-credit-link");
+      const credits = {
+        esri: ["https://livingatlas.arcgis.com/wayback/", "Source Esri World Imagery Wayback"],
+        copernicus: ["https://dataspace.copernicus.eu/", "Source Sentinel‑2 · Copernicus"],
+        street: ["https://www.openstreetmap.org/fixthemap", "Signaler une erreur"],
+      };
+      [creditLink.href, creditLink.textContent] = credits[layerName];
     }
+    document.querySelectorAll('input[name="base-layer"]').forEach((input) => {
+      input.addEventListener("change", (event) => {
+        if (event.currentTarget.checked) selectBaseLayer(event.currentTarget.value);
+      });
+    });
+    document.querySelector("#layer-boundary").addEventListener("change", (event) => {
+      if (!boundaryLayer) return;
+      if (event.currentTarget.checked) boundaryLayer.addTo(map);
+      else map.removeLayer(boundaryLayer);
+    });
+    document.querySelector("#layer-ndvi").addEventListener("change", (event) => {
+      if (!ndviOverlay) return;
+      if (event.currentTarget.checked) ndviOverlay.addTo(map);
+      else map.removeLayer(ndviOverlay);
+      if (event.currentTarget.checked && boundaryLayer
+          && document.querySelector("#layer-boundary").checked) {
+        boundaryLayer.bringToFront();
+      }
+    });
+    document.querySelector("#map-credit-link").href = "https://livingatlas.arcgis.com/wayback/";
+    document.querySelector("#map-credit-link").textContent = "Source Esri World Imagery Wayback";
+    document.querySelector("#imagery-source").textContent =
+      "Fond Esri World Imagery courant. Chargement des versions historiques…";
 
-    const fieldPopup = document.createElement("strong");
-    fieldPopup.textContent = privateField.name;
-    L.circleMarker([privateField.center_lat, privateField.center_lng], {
-      radius: 9,
-      color: "#fffefa",
-      weight: 3,
-      fillColor: "#64864b",
-      fillOpacity: 1,
-    }).addTo(map).bindPopup(fieldPopup);
+    const logMapZoom = () => console.log("Zoom de la carte GAINAKO :", map.getZoom());
+    map.on("zoomend", logMapZoom);
     setCoordinates(privateField.center_lat, privateField.center_lng);
     drawBoundary(map);
     renderRecords(map);
     if (state.boundary.length >= 3) {
-      map.fitBounds(L.latLngBounds(state.boundary), { padding: [70, 70], maxZoom: 18 });
+      map.fitBounds(L.latLngBounds(state.boundary), { padding: [70, 70], maxZoom: 17 });
     } else {
-      map.setView([privateField.center_lat, privateField.center_lng], 16);
+      map.setView([privateField.center_lat, privateField.center_lng], 17);
     }
+    satelliteLayer.addTo(map);
+    map.whenReady(logMapZoom);
+    setupImageryTimeline(satelliteLayer, privateField);
 
     map.on("click", (event) => {
       const { lat, lng } = event.latlng;
@@ -193,9 +222,9 @@
 
     document.querySelector("#locate-button").addEventListener("click", () => {
       if (state.boundary.length >= 3) {
-        map.fitBounds(L.latLngBounds(state.boundary), { padding: [45, 45], maxZoom: 18 });
+        map.fitBounds(L.latLngBounds(state.boundary), { padding: [45, 45], maxZoom: 17 });
       } else {
-        map.setView([privateField.center_lat, privateField.center_lng], 16);
+        map.setView([privateField.center_lat, privateField.center_lng], 17);
       }
     });
     document.querySelector("#fullscreen-button").addEventListener("click", async () => {
@@ -270,7 +299,7 @@
     const displayDate = typeof attributes.SRC_DATE2 === "string" ? attributes.SRC_DATE2 : "";
     if (/^\d{8}$/.test(compactDate)) {
       const isoDate = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-      return { value: formatImageryDate(isoDate), timestamp: Date.parse(`${isoDate}T00:00:00Z`) };
+      return { value: isoDate, timestamp: Date.parse(`${isoDate}T00:00:00Z`) };
     }
     const timestamp = Date.parse(displayDate);
     return Number.isNaN(timestamp)
@@ -295,9 +324,11 @@
     return `${metadataLayerUrl}/identify?${params}`;
   }
 
+  let imagerySourceLookupNumber = 0;
+
   async function updateImagerySourceDate(release, lookupNumber, privateField) {
     const sourceLabel = document.querySelector("#imagery-source");
-    sourceLabel.textContent = "Recherche de la date de l’image sur le champ…";
+    sourceLabel.textContent = "Recherche de la date de prise de vue sur la parcelle…";
     try {
       const response = await fetch(getImagerySourceQuery(release.metadataLayerUrl, privateField));
       if (!response.ok) throw new Error(`Esri a répondu ${response.status}.`);
@@ -319,31 +350,26 @@
       const latestSource = sources[0];
       if (!latestSource) {
         sourceLabel.textContent = "Esri ne fournit pas de date de prise de vue pour ce secteur.";
-        document.querySelector("#field-imagery-date").textContent = sourceLabel.textContent;
         return;
       }
 
       const details = [latestSource.provider, Number.isFinite(latestSource.resolution)
         ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 }).format(latestSource.resolution)} m`
         : ""].filter(Boolean);
-      const sourceDescription = `Image source la plus récente indiquée ici : ${formatImageryDate(latestSource.date.value)}${details.length ? ` · ${details.join(" · ")}` : ""}.`;
-      sourceLabel.textContent = sourceDescription;
-      document.querySelector("#field-imagery-date").textContent = sourceDescription;
+      sourceLabel.textContent =
+        `Prise de vue source indiquée : ${formatImageryDate(latestSource.date.value)}${details.length ? ` · ${details.join(" · ")}` : ""}.`;
     } catch (error) {
       if (lookupNumber !== imagerySourceLookupNumber) return;
       console.error("Impossible de récupérer les métadonnées d’imagerie Esri.", error);
-      sourceLabel.textContent = "Date de l’image source indisponible pour cette version.";
-      document.querySelector("#field-imagery-date").textContent = sourceLabel.textContent;
+      sourceLabel.textContent = "Date de prise de vue indisponible pour cette version.";
     }
   }
-
-  let imagerySourceLookupNumber = 0;
 
   function setupImageryTimeline(satelliteLayer, privateField) {
     const slider = document.querySelector("#imagery-timeline");
     const releaseLabel = document.querySelector("#imagery-release");
     const sourceLabel = document.querySelector("#imagery-source");
-    const releasesLabel = document.querySelector("#imagery-newest");
+    const newestLabel = document.querySelector("#imagery-newest");
     const oldestLabel = document.querySelector("#imagery-oldest");
     let releases = [];
     let activeReleaseIndex = -1;
@@ -424,7 +450,9 @@
     slider.addEventListener("input", () => {
       const selectedIndex = Number(slider.value);
       const selectedRelease = releases[selectedIndex];
-      if (selectedRelease) releaseLabel.textContent = `Version du fond : ${formatImageryDate(selectedRelease.date)}`;
+      if (selectedRelease) {
+        releaseLabel.textContent = `Version du fond : ${formatImageryDate(selectedRelease.date)}`;
+      }
       window.clearTimeout(changeTimeout);
       changeTimeout = window.setTimeout(() => selectRelease(selectedIndex), 350);
     });
@@ -443,14 +471,14 @@
         slider.value = String(releases.length - 1);
         slider.disabled = false;
         oldestLabel.textContent = formatImageryDate(releases[0].date);
-        releasesLabel.textContent = formatImageryDate(releases.at(-1).date);
+        newestLabel.textContent = formatImageryDate(releases.at(-1).date);
         selectRelease(releases.length - 1);
       })
       .catch((error) => {
         console.error("Impossible de charger les versions historiques Esri.", error);
         releaseLabel.textContent = "Dates historiques indisponibles";
-        sourceLabel.textContent = "Le fond satellite actuel reste disponible sans le curseur.";
-        showNotice("Impossible de charger les dates des images. Le fond satellite actuel reste disponible.");
+        sourceLabel.textContent = "Le fond satellite courant reste disponible sans le curseur.";
+        showNotice("Impossible de charger les dates des images. Le fond courant reste disponible.");
       });
   }
 
@@ -472,9 +500,10 @@
       boundaryLayer = L.polygon(state.boundary, {
         color: "#f2c230",
         fillColor: "#ffe16c",
-        fillOpacity: 0.18,
+        fillOpacity: 0,
         weight: 4,
-      }).addTo(map);
+      });
+      if (document.querySelector("#layer-boundary").checked) boundaryLayer.addTo(map);
       boundaryLayer.bindPopup(`<strong>Contour du champ</strong><br>${formatArea(areaInHectares(state.boundary))}`);
       boundaryButton.textContent = "Modifier le contour";
     } else {
@@ -814,8 +843,7 @@
       document.querySelector("#map-field-name").textContent = field.name;
       document.querySelector("#field-location").textContent =
         `${field.center_lat.toFixed(6)}°, ${field.center_lng.toFixed(6)}°`;
-      document.querySelector("#imagery-source").textContent = "Chargement des dates d’imagerie…";
-      document.querySelector("#field-imagery-date").textContent = "Chargement des métadonnées…";
+      document.querySelector("#imagery-source").textContent = "Chargement du fond Esri World Imagery…";
       appShell.hidden = false;
       authGate.hidden = true;
       map = createMap(field);
@@ -863,6 +891,223 @@
       showNotice("Déconnexion impossible. Vérifiez la connexion et réessayez.");
     }
   }
+
+  function setNdviFraction(prefix, fraction) {
+    const percentage = Math.max(0, Math.min(100, fraction * 100));
+    const label = `${Math.round(percentage)} %`;
+    document.querySelector(`#ndvi-${prefix}-value`).textContent = label;
+    document.querySelector(`#ndvi-${prefix}-bar`).style.width = label;
+  }
+
+  function interpretNdvi(meanNdvi, validPixels) {
+    let title;
+    let description;
+    if (meanNdvi < 0.2) {
+      title = "Peu de végétation détectée";
+      description = "Le signal observé est faible. Cela peut correspondre à un sol peu couvert, une période après récolte, une végétation sèche ou clairsemée. Le NDVI ne permet pas d’en déterminer la cause.";
+    } else if (meanNdvi < 0.4) {
+      title = "Couvert végétal intermédiaire";
+      description = "Le signal indique un mélange de végétation et de surfaces moins couvertes, ou une végétation en début de croissance. Ce résultat ne suffit pas à évaluer la santé de la culture.";
+    } else {
+      title = "Signal de végétation marqué";
+      description = "La parcelle présente un signal compatible avec une végétation active ou un couvert important. Cela ne prouve pas à lui seul que la culture est saine ou que le sol est fertile.";
+    }
+    if (validPixels < 10) {
+      description += " Peu de pixels ont été exploitables : interprétation particulièrement incertaine.";
+    }
+    return { title, description };
+  }
+
+  function showNdviLayer(layer) {
+    if (!map || !window.L || !Array.isArray(layer?.bbox) || layer.bbox.length !== 4
+        || !layer.bbox.every(Number.isFinite)
+        || typeof layer.image !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(layer.image)) {
+      return false;
+    }
+    if (ndviOverlay && map.hasLayer(ndviOverlay)) map.removeLayer(ndviOverlay);
+    const [west, south, east, north] = layer.bbox;
+    if (west >= east || south >= north || state.boundary.length < 3) return false;
+
+    ndviOverlay = L.imageOverlay(
+      `data:image/png;base64,${layer.image}`,
+      [[south, west], [north, east]],
+      { opacity: 0.8, className: "ndvi-overlay", interactive: false },
+    );
+    ndviOverlay.addTo(map);
+    const clipPoints = state.boundary.map(([lat, lng]) => {
+      const x = ((lng - west) / (east - west)) * 100;
+      const y = ((north - lat) / (north - south)) * 100;
+      return `${x}% ${y}%`;
+    });
+    ndviOverlay.getElement().style.clipPath = `polygon(${clipPoints.join(", ")})`;
+    const toggle = document.querySelector("#layer-ndvi");
+    toggle.disabled = false;
+    toggle.checked = true;
+    if (boundaryLayer && document.querySelector("#layer-boundary").checked) {
+      boundaryLayer.bringToFront();
+    }
+    return true;
+  }
+
+  function showCopernicusLayer(layer, from, to) {
+    if (!map || !window.L || !Array.isArray(layer?.bbox) || layer.bbox.length !== 4
+        || !layer.bbox.every(Number.isFinite)
+        || typeof layer.image !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(layer.image)) {
+      return false;
+    }
+    const [west, south, east, north] = layer.bbox;
+    if (west >= east || south >= north) return false;
+    if (copernicusOverlay && map.hasLayer(copernicusOverlay)) map.removeLayer(copernicusOverlay);
+    copernicusOverlay = L.imageOverlay(
+      `data:image/png;base64,${layer.image}`,
+      [[south, west], [north, east]],
+      { opacity: 1, className: "sentinel-overlay", interactive: false },
+    );
+    const dateLabel = from === to
+      ? formatImageryDate(from)
+      : `${formatImageryDate(from)} – ${formatImageryDate(to)}`;
+    document.querySelector("#base-layer-copernicus").disabled = false;
+    document.querySelector("#copernicus-layer-help").textContent =
+      `Image Sentinel‑2 · ${dateLabel} · env. 500 m de marge ; couverture locale.`;
+    if (document.querySelector('input[name="base-layer"][value="copernicus"]').checked) {
+      copernicusOverlay.addTo(map);
+    }
+    return true;
+  }
+
+  function dateInputValue(date) {
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+  }
+
+  const ndviDateTo = document.querySelector("#ndvi-date-to");
+  const ndviDateFrom = document.querySelector("#ndvi-date-from");
+  const today = new Date();
+  const sixtyDaysAgo = new Date(today);
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  ndviDateTo.max = dateInputValue(today);
+  ndviDateFrom.max = dateInputValue(today);
+  ndviDateTo.value = dateInputValue(today);
+  ndviDateFrom.value = dateInputValue(sixtyDaysAgo);
+
+  document.querySelector("#ndvi-button").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#ndvi-status");
+    if (!supabaseClient || !field?.id) {
+      status.textContent = "Connectez-vous à GAINAKO pour analyser la parcelle.";
+      return;
+    }
+
+    const from = ndviDateFrom.value;
+    const to = ndviDateTo.value;
+    const fromTime = Date.parse(`${from}T00:00:00Z`);
+    const toTime = Date.parse(`${to}T00:00:00Z`);
+    if (!from || !to || !Number.isFinite(fromTime) || !Number.isFinite(toTime)) {
+      status.textContent = "Choisis une date de début et une date de fin valides.";
+      return;
+    }
+    if (from > to) {
+      status.textContent = "La date de début doit être antérieure ou égale à la date de fin.";
+      return;
+    }
+    const durationDays = Math.floor((toTime - fromTime) / 86400000) + 1;
+    if (durationDays > 366) {
+      status.textContent = "La période d’analyse ne peut pas dépasser un an.";
+      return;
+    }
+    if (to > dateInputValue(new Date())) {
+      status.textContent = "La date de fin ne peut pas être dans le futur.";
+      return;
+    }
+
+    button.disabled = true;
+    if (ndviOverlay && map?.hasLayer(ndviOverlay)) map.removeLayer(ndviOverlay);
+    if (copernicusOverlay && map?.hasLayer(copernicusOverlay)) map.removeLayer(copernicusOverlay);
+    if (document.querySelector('input[name="base-layer"][value="copernicus"]').checked) {
+      const esriBase = document.querySelector('input[name="base-layer"][value="esri"]');
+      esriBase.checked = true;
+      esriBase.dispatchEvent(new Event("change"));
+    }
+    ndviOverlay = null;
+    copernicusOverlay = null;
+    const ndviLayerCheckbox = document.querySelector("#layer-ndvi");
+    ndviLayerCheckbox.checked = false;
+    ndviLayerCheckbox.disabled = true;
+    document.querySelector("#base-layer-copernicus").disabled = true;
+    status.textContent = from === to
+      ? `Analyse Sentinel‑2 pour le ${formatImageryDate(from)}…`
+      : `Analyse Sentinel‑2 du ${formatImageryDate(from)} au ${formatImageryDate(to)}…`;
+    try {
+      const { data, error } = await supabaseClient.functions.invoke("sentinel-analysis", {
+        body: { fieldId: field.id, from, to },
+      });
+      if (error) {
+        let message = error.message;
+        if (typeof error.context?.json === "function") {
+          try {
+            const details = await error.context.json();
+            if (typeof details.error === "string") message = details.error;
+          } catch (parseError) {
+            console.error("Impossible de lire l’erreur de la fonction NDVI.", parseError);
+          }
+        }
+        throw new Error(message);
+      }
+      if (!Number.isFinite(data?.meanNdvi)
+          || !Number.isFinite(data?.sparseCoverFraction)
+          || !Number.isFinite(data?.denseCoverFraction)
+          || !Number.isFinite(data?.lowCoverFraction)
+          || !Number.isFinite(data?.validPixels)
+          || typeof data.from !== "string"
+          || typeof data.to !== "string") {
+        throw new Error("La fonction NDVI a renvoyé un résultat incomplet.");
+      }
+
+      document.querySelector("#ndvi-mean").textContent =
+        new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          .format(data.meanNdvi);
+      const interpretation = interpretNdvi(data.meanNdvi, data.validPixels);
+      document.querySelector("#ndvi-interpretation-title").textContent = interpretation.title;
+      document.querySelector("#ndvi-interpretation-description").textContent = interpretation.description;
+      setNdviFraction("dense", data.denseCoverFraction);
+      setNdviFraction("sparse", data.sparseCoverFraction);
+      setNdviFraction("bare", data.lowCoverFraction);
+      const formatDate = (date) => new Intl.DateTimeFormat("fr-FR").format(new Date(`${date}T12:00:00Z`));
+      document.querySelector("#ndvi-period").textContent = data.from === data.to
+        ? `Date analysée : ${formatDate(data.from)}.`
+        : `Période analysée : ${formatDate(data.from)} – ${formatDate(data.to)}.`;
+      document.querySelector("#ndvi-pixels").textContent =
+        `Calcul basé sur ${Math.round(data.validPixels)} pixels Sentinel‑2 valides (environ 10 m chacun).`;
+      document.querySelector("#ndvi-results").hidden = false;
+      const hasNdviLayer = Boolean(data.ndviLayer && showNdviLayer(data.ndviLayer));
+      const hasCopernicusLayer = Boolean(
+        data.copernicusLayer && showCopernicusLayer(data.copernicusLayer, data.from, data.to),
+      );
+      if (!hasNdviLayer && data.ndviLayer) {
+        status.textContent = "Analyse terminée, mais la couche NDVI reçue est invalide.";
+      } else if (data.layerError || data.copernicusLayerError) {
+        status.textContent = [
+          "Analyse terminée.",
+          data.layerError,
+          data.copernicusLayerError,
+        ].filter(Boolean).join(" ");
+      } else {
+        status.textContent = hasNdviLayer && hasCopernicusLayer
+          ? "Analyse terminée. La couche NDVI est affichée ; tu peux choisir Sentinel‑2 Copernicus dans les fonds."
+          : "Analyse terminée, mais les couches cartographiques n’ont pas pu être préparées.";
+      }
+    } catch (error) {
+      console.error("Impossible de calculer l’analyse NDVI de la parcelle.", error);
+      status.textContent = error instanceof Error
+        ? `Analyse indisponible : ${error.message}`
+        : "Analyse indisponible. Vérifiez la connexion Supabase et la configuration Copernicus.";
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   document.querySelector("#signout-button").addEventListener("click", signOut);
   document.querySelector("#auth-signout").addEventListener("click", signOut);

@@ -1,0 +1,2 @@
+[functions.sentinel-analysis]
+verify_jwt = true
